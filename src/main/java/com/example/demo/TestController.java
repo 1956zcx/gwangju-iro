@@ -1,5 +1,8 @@
 package com.example.demo;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -185,6 +188,7 @@ public class TestController {
         int mainCount = 0;
         int subCount = 0;
         Set<String> usedNames = new HashSet<>();
+        List<PlaceDto> finalSpotOrder = new ArrayList<>();
 
         for (PlaceDto spot : optimizedSpots) {
             // ✅ 목표 개수를 채우면 즉시 중단
@@ -200,6 +204,7 @@ public class TestController {
 
             usedNames.add(spot.getName());
             mainCount++;
+            finalSpotOrder.add(spot);
 
             // ✅ 수정: 코스 흐름에 맞게 밥 먹는 타이밍을 정확히 제어합니다.
             boolean matchSubNow = false;
@@ -257,30 +262,38 @@ public class TestController {
 
                 // 성공적으로 짝꿍 장소를 찾았다면 추가!
                 if (matchedSub != null) {
-                    Map<String, Integer> subTravelInfo = kakaoLocalApiService.getTravelInfo(
-                            spot.getLat(), spot.getLng(), matchedSub.getLat(), matchedSub.getLng(), isWalkingMode);
-                    int subMeters = subTravelInfo.get("distance");
-                    String subLabel;
-                    int subMinutes;
-                    if (!isWalkingMode && subMeters < 600) {
-                        subMinutes = Math.max(1, (int) (subMeters / (4000.0 / 60.0)));
-                        subLabel = "도보";
-                    } else if (isWalkingMode && subMeters >= 1000) {
-                        subMinutes = Math.max(8, 5 + (int) (subMeters / 333.0));
-                        subLabel = "대중교통";
-                    } else {
-                        subMinutes = Math.max(1, subTravelInfo.get("duration") / 60);
-                        subLabel = travelMode;
-                    }
                     pairedDataBuilder.append(String.format(
-                            "  ➔ 짝꿍 서브 장소 %d: [%s: %s (lat:%f, lng:%f)] (이동: %s %d분 (약 %dm))\n",
-                            subCount + 1, matchedSub.getDetailCategory(), matchedSub.getName(), matchedSub.getLat(), matchedSub.getLng(),
-                            subLabel, subMinutes, subMeters
+                            "  ➔ 짝꿍 서브 장소 %d: [%s: %s (lat:%f, lng:%f)]\n",
+                            subCount + 1, matchedSub.getDetailCategory(), matchedSub.getName(), matchedSub.getLat(), matchedSub.getLng()
                     ));
+                    finalSpotOrder.add(matchedSub);
                     usedNames.add(matchedSub.getName());
                     subCount++;
                 }
             }
+        }
+
+        // 6.5 모든 구간 실측 distToNext 계산 (GPT 응답에 주입용)
+        Map<String, String> distToNextMap = new LinkedHashMap<>();
+        for (int i = 0; i < finalSpotOrder.size() - 1; i++) {
+            PlaceDto from = finalSpotOrder.get(i);
+            PlaceDto to = finalSpotOrder.get(i + 1);
+            Map<String, Integer> segInfo = kakaoLocalApiService.getTravelInfo(
+                    from.getLat(), from.getLng(), to.getLat(), to.getLng(), isWalkingMode);
+            int segMeters = segInfo.get("distance");
+            String segLabel;
+            int segMinutes;
+            if (!isWalkingMode && segMeters < 600) {
+                segMinutes = Math.max(1, (int) (segMeters / (4000.0 / 60.0)));
+                segLabel = "도보";
+            } else if (isWalkingMode && segMeters >= 1000) {
+                segMinutes = Math.max(8, 5 + (int) (segMeters / 333.0));
+                segLabel = "대중교통";
+            } else {
+                segMinutes = Math.max(1, segInfo.get("duration") / 60);
+                segLabel = travelMode;
+            }
+            distToNextMap.put(from.getName(), segLabel + " " + segMinutes + "분 (약 " + segMeters + "m)");
         }
 
         // 7. 데이터가 하나도 없을 경우의 예외 처리
@@ -310,7 +323,7 @@ public class TestController {
                         "2. 내가 제공한 데이터가 3개면 3개로, 5개면 5개로만 코스를 짜. 억지로 개수를 채우지 마.\n" +
                         "3. 🚨 [매우 중요] 내가 제공한 '➔ 짝꿍 서브 장소(맛집/카페)'는 절대로 누락하지 말고, 반드시 코스(plans 배열)의 적절한 순서에 무조건 포함시켜!\n" +
                         "4. [초강력 경고] 내가 제공한 텍스트의 순서(메인 1 ➔ 짝꿍 서브 1 ➔ 메인 2...)를 100%% 완벽하게 똑같이 유지해서 JSON 배열(plans)에 넣어! 절대로 네 마음대로 장소의 순서를 섞거나, 카테고리별로 재배치하지 마! 지도에 그릴 때 선이 꼬이게 됨!\n" +
-                        "5. distToNext는 반드시 실측 데이터를 그대로 사용해. 메인→서브는 pairedData의 '(이동: X분 (약 Ym))' 값을, 서브→다음 메인·메인→다음 메인은 '★실측 이동 시간 데이터'의 값을 그대로 복사해. 반드시 '도보 X분 (약 Ym)' 형식을 유지해.\n" +
+                        "5. distToNext는 아무 값이나 넣어도 됨. 백엔드에서 실측값으로 덮어씌울 것임.\n" +
                         "6. 각 장소가 '실내'인지 '실외'인지 판단해줘.\n" +
                         "7. 전체 코스의 '총 예상 소요 시간'과 '총 예상 이동 거리'를 계산해줘.\n" +
                         "8. 오직 아래 JSON 형식으로만 응답해. 배열이 아니라 객체 형태야!\n\n" +
@@ -326,6 +339,28 @@ public class TestController {
                 district, preference, mbti, budget, time, vehicle, pairedDataString, travelInfoStr
         );
 
-        return chatGptService.getChatResponse(mbti, "Gwangju", prompt);
+        String gptResponse = chatGptService.getChatResponse(mbti, "Gwangju", prompt);
+
+        // 실측 distToNext 주입 (GPT가 생성한 값을 백엔드 계산값으로 완전히 교체)
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            ObjectNode root = (ObjectNode) mapper.readTree(gptResponse);
+            ArrayNode plans = (ArrayNode) root.get("plans");
+            if (plans != null) {
+                for (int i = 0; i < plans.size(); i++) {
+                    ObjectNode plan = (ObjectNode) plans.get(i);
+                    String name = plan.get("name").asText();
+                    if (distToNextMap.containsKey(name)) {
+                        plan.put("distToNext", distToNextMap.get(name));
+                    } else if (i == plans.size() - 1) {
+                        plan.putNull("distToNext");
+                    }
+                }
+            }
+            return mapper.writeValueAsString(root);
+        } catch (Exception e) {
+            System.err.println("distToNext 주입 실패, GPT 원본 반환: " + e.getMessage());
+            return gptResponse;
+        }
     }
 }
