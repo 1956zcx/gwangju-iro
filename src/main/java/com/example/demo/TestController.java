@@ -147,7 +147,7 @@ public class TestController {
         travelInfoBuilder.append("[★실측 이동 시간 데이터 (distToNext에 반드시 그대로 사용)★]\n");
 
         int totalTravelSeconds = 0;
-        int totalTravelMeters = 0;
+        int mainSegMeters = 0;
         int usableMainCount = Math.min(optimizedSpots.size(), requiredMains);
 
         for (int i = 0; i < usableMainCount - 1; i++) {
@@ -175,11 +175,11 @@ public class TestController {
 
             travelInfoBuilder.append(String.format("- 메인%d → 메인%d: %s %d분 (약 %dm)\n", i + 1, i + 2, segmentLabel, minutes, meters));
             totalTravelSeconds += minutes * 60;
-            totalTravelMeters += meters;
+            mainSegMeters += meters;
         }
-        int totalTravelMin = totalTravelSeconds / 60;
-        double totalKm = totalTravelMeters / 1000.0;
-        travelInfoBuilder.append(String.format("이동 합계: %s %d분, 약 %.1fkm\n", travelMode, totalTravelMin, totalKm));
+        int mainSegTravelMin = totalTravelSeconds / 60;
+        double mainSegKm = mainSegMeters / 1000.0;
+        travelInfoBuilder.append(String.format("이동 합계: %s %d분, 약 %.1fkm\n", travelMode, mainSegTravelMin, mainSegKm));
         travelInfoBuilder.append("(메인 장소 → 바로 옆 짝꿍 서브 장소 이동은 '도보 3분 이내'로 표기)");
         String travelInfoStr = travelInfoBuilder.toString();
 
@@ -275,6 +275,8 @@ public class TestController {
 
         // 6.5 모든 구간 실측 distToNext 계산 (GPT 응답에 주입용)
         Map<String, String> distToNextMap = new LinkedHashMap<>();
+        int totalTravelMin = 0;
+        int totalTravelMeters = 0;
         for (int i = 0; i < finalSpotOrder.size() - 1; i++) {
             PlaceDto from = finalSpotOrder.get(i);
             PlaceDto to = finalSpotOrder.get(i + 1);
@@ -294,7 +296,23 @@ public class TestController {
                 segLabel = travelMode;
             }
             distToNextMap.put(from.getName(), segLabel + " " + segMinutes + "분 (약 " + segMeters + "m)");
+            totalTravelMin += segMinutes;
+            totalTravelMeters += segMeters;
         }
+
+        // 장소별 체류 예상시간 합산
+        int totalStayMin = 0;
+        for (PlaceDto spot : finalSpotOrder) {
+            totalStayMin += estimateStayMinutes(spot);
+        }
+
+        int totalMin = totalTravelMin + totalStayMin;
+        String totalTimeStr = totalMin >= 60
+                ? "약 " + (totalMin / 60) + "시간 " + (totalMin % 60) + "분"
+                : "약 " + totalMin + "분";
+        String totalDistanceStr = totalTravelMeters >= 1000
+                ? String.format("약 %.1fkm", totalTravelMeters / 1000.0)
+                : "약 " + totalTravelMeters + "m";
 
         // 7. 데이터가 하나도 없을 경우의 예외 처리
         if (pairedDataBuilder.length() == 0) {
@@ -357,10 +375,26 @@ public class TestController {
                     }
                 }
             }
+            root.put("totalTime", totalTimeStr);
+            root.put("totalDistance", totalDistanceStr);
             return mapper.writeValueAsString(root);
         } catch (Exception e) {
             System.err.println("distToNext 주입 실패, GPT 원본 반환: " + e.getMessage());
             return gptResponse;
         }
+    }
+
+    private int estimateStayMinutes(PlaceDto spot) {
+        String cat = (spot.getDetailCategory() != null ? spot.getDetailCategory() : "").toLowerCase();
+        String main = (spot.getMainCategory() != null ? spot.getMainCategory() : "").toLowerCase();
+        if (cat.contains("카페") || cat.contains("디저트") || cat.contains("베이커리") || cat.contains("cafe")) {
+            return 30;
+        }
+        if (cat.contains("음식") || cat.contains("식당") || cat.contains("한식") || cat.contains("중식") ||
+                cat.contains("일식") || cat.contains("양식") || cat.contains("분식") || cat.contains("국밥") ||
+                main.contains("서브장소") || main.contains("먹거리")) {
+            return 45;
+        }
+        return 60;
     }
 }
