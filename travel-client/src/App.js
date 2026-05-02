@@ -281,16 +281,29 @@ function App() {
                                     {spot.description}
                                 </p>
 
-                                {/* ✅ 새로 추가: 다음 장소까지의 이동 거리/시간 표시 (마지막 장소가 아닐 때만 표시) */}
-                                {spot.distToNext && index !== plans.length - 1 && (
-                                    <div style={{
-                                        fontSize: '12px', color: '#555', background: '#e9ecef',
-                                        padding: '5px 10px', borderRadius: '5px', display: 'inline-block',
-                                        marginTop: '5px'
-                                    }}>
-                                        📍 다음 장소까지: <span style={{ color: '#e74c3c', fontWeight: 'bold' }}>{spot.distToNext}</span>
-                                    </div>
-                                )}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '5px' }}>
+                                    {spot.distToNext && index !== plans.length - 1 && (
+                                        <div style={{
+                                            fontSize: '12px', color: '#555', background: '#e9ecef',
+                                            padding: '5px 10px', borderRadius: '5px', display: 'inline-block',
+                                        }}>
+                                            📍 다음 장소까지: <span style={{ color: '#e74c3c', fontWeight: 'bold' }}>{spot.distToNext}</span>
+                                        </div>
+                                    )}
+                                    <a
+                                        href={`https://map.kakao.com/link/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        style={{
+                                            display: 'inline-block', padding: '4px 10px', fontSize: '12px',
+                                            backgroundColor: '#fee500', color: '#3c1e1e', borderRadius: '4px',
+                                            textDecoration: 'none', fontWeight: 'bold',
+                                        }}
+                                    >
+                                        🗺️ 카카오맵 길찾기
+                                    </a>
+                                </div>
                             </div>
                         ))}
                     </div>
