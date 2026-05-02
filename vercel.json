@@ -1,0 +1,5 @@
+{
+  "buildCommand": "npm --prefix travel-client run build",
+  "outputDirectory": "travel-client/build",
+  "installCommand": "npm --prefix travel-client install"
+}
