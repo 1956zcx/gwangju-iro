@@ -152,10 +152,26 @@ public class TestController {
             PlaceDto to = optimizedSpots.get(i + 1);
             Map<String, Integer> info = kakaoLocalApiService.getTravelInfo(
                     from.getLat(), from.getLng(), to.getLat(), to.getLng(), isWalkingMode);
-            int minutes = Math.max(1, info.get("duration") / 60);
             int meters = info.get("distance");
-            travelInfoBuilder.append(String.format("- 메인%d → 메인%d: %s %d분 (약 %dm)\n", i + 1, i + 2, travelMode, minutes, meters));
-            totalTravelSeconds += info.get("duration");
+
+            String segmentLabel;
+            int minutes;
+
+            if (!isWalkingMode && meters < 600) {
+                // 자가용이지만 600m 미만 → 도보
+                minutes = Math.max(1, (int) (meters / (4000.0 / 60.0)));
+                segmentLabel = "도보";
+            } else if (isWalkingMode && meters >= 1000) {
+                // 뚜벅이인데 1km 이상 → 대중교통 (대기 5분 + 20km/h 기준 이동시간)
+                minutes = Math.max(8, 5 + (int) (meters / 333.0));
+                segmentLabel = "대중교통";
+            } else {
+                minutes = Math.max(1, info.get("duration") / 60);
+                segmentLabel = travelMode;
+            }
+
+            travelInfoBuilder.append(String.format("- 메인%d → 메인%d: %s %d분 (약 %dm)\n", i + 1, i + 2, segmentLabel, minutes, meters));
+            totalTravelSeconds += minutes * 60;
             totalTravelMeters += meters;
         }
         int totalTravelMin = totalTravelSeconds / 60;
