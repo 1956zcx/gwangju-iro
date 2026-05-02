@@ -293,7 +293,9 @@ function App() {
                                     <a
                                         href={
                                             index === 0
-                                                ? `https://map.kakao.com/link/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`
+                                                ? (district === '내주변' && userLocation
+                                                    ? `https://map.kakao.com/link/from/${encodeURIComponent('내 위치')},${userLocation.lat},${userLocation.lng}/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`
+                                                    : `https://map.kakao.com/link/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`)
                                                 : `https://map.kakao.com/link/from/${encodeURIComponent(plans[index-1].name)},${plans[index-1].lat},${plans[index-1].lng}/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`
                                         }
                                         target="_blank"
