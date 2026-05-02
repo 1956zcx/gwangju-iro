@@ -347,12 +347,12 @@ public class TestController {
             ObjectNode root = (ObjectNode) mapper.readTree(gptResponse);
             ArrayNode plans = (ArrayNode) root.get("plans");
             if (plans != null) {
+                List<String> orderedDistToNext = new ArrayList<>(distToNextMap.values());
                 for (int i = 0; i < plans.size(); i++) {
                     ObjectNode plan = (ObjectNode) plans.get(i);
-                    String name = plan.get("name").asText();
-                    if (distToNextMap.containsKey(name)) {
-                        plan.put("distToNext", distToNextMap.get(name));
-                    } else if (i == plans.size() - 1) {
+                    if (i < orderedDistToNext.size()) {
+                        plan.put("distToNext", orderedDistToNext.get(i));
+                    } else {
                         plan.putNull("distToNext");
                     }
                 }
