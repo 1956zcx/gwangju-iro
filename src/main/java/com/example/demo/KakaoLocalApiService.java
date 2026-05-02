@@ -9,6 +9,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -37,6 +38,59 @@ public class KakaoLocalApiService {
 
         // size를 15로 넉넉하게 잡아서 필터링 후에도 식당/카페가 충분히 살아남게 함
         return fetchKakaoData(lat, lng, radius, keywords, 15);
+    }
+
+    // 🚗 이동 시간 계산: 자가용 → 카카오 모빌리티 API, 뚜벅이 → Haversine 계산
+    public Map<String, Integer> getTravelInfo(double originLat, double originLng, double destLat, double destLng, boolean isWalking) {
+        if (!isWalking) {
+            try {
+                RestTemplate restTemplate = new RestTemplate();
+                HttpHeaders headers = new HttpHeaders();
+                headers.set("Authorization", "KakaoAK " + restApiKey);
+                HttpEntity<String> entity = new HttpEntity<>(headers);
+
+                URI uri = UriComponentsBuilder
+                        .fromUriString("https://apis-navi.kakaomobility.com/v1/directions")
+                        .queryParam("origin", originLng + "," + originLat)
+                        .queryParam("destination", destLng + "," + destLat)
+                        .build().encode().toUri();
+
+                ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, entity, Map.class);
+                Map<String, Object> body = response.getBody();
+                if (body != null) {
+                    List<Map<String, Object>> routes = (List<Map<String, Object>>) body.get("routes");
+                    if (routes != null && !routes.isEmpty()) {
+                        Map<String, Object> summary = (Map<String, Object>) routes.get(0).get("summary");
+                        int duration = ((Number) summary.get("duration")).intValue();
+                        int distance = ((Number) summary.get("distance")).intValue();
+                        Map<String, Integer> result = new HashMap<>();
+                        result.put("duration", duration);
+                        result.put("distance", distance);
+                        return result;
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("카카오 모빌리티 API 오류 (자가용 폴백 사용): " + e.getMessage());
+            }
+        }
+        return calcByHaversine(originLat, originLng, destLat, destLng, isWalking);
+    }
+
+    private Map<String, Integer> calcByHaversine(double lat1, double lng1, double lat2, double lng2, boolean isWalking) {
+        final double R = 6371000;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        int straightDist = (int) (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+        int actualDist = (int) (straightDist * 1.3);
+        double speedMps = isWalking ? (4000.0 / 3600.0) : (30000.0 / 3600.0);
+        int durationSec = (int) (actualDist / speedMps);
+        Map<String, Integer> result = new HashMap<>();
+        result.put("duration", durationSec);
+        result.put("distance", actualDist);
+        return result;
     }
 
     // ⚙️ 카카오 API 통신 로직 (맛집/카페 전용으로 단순화)

@@ -137,6 +137,33 @@ public class TestController {
         }
         // =========================================================================
 
+        // 5.5. 실측 이동 시간 계산 (카카오 모빌리티 API / Haversine)
+        boolean isWalkingMode = vehicle.contains("뚜벅이");
+        String travelMode = isWalkingMode ? "도보" : "차량";
+        StringBuilder travelInfoBuilder = new StringBuilder();
+        travelInfoBuilder.append("[★실측 이동 시간 데이터 (distToNext에 반드시 그대로 사용)★]\n");
+
+        int totalTravelSeconds = 0;
+        int totalTravelMeters = 0;
+        int usableMainCount = Math.min(optimizedSpots.size(), requiredMains);
+
+        for (int i = 0; i < usableMainCount - 1; i++) {
+            PlaceDto from = optimizedSpots.get(i);
+            PlaceDto to = optimizedSpots.get(i + 1);
+            Map<String, Integer> info = kakaoLocalApiService.getTravelInfo(
+                    from.getLat(), from.getLng(), to.getLat(), to.getLng(), isWalkingMode);
+            int minutes = Math.max(1, info.get("duration") / 60);
+            int meters = info.get("distance");
+            travelInfoBuilder.append(String.format("- 메인%d → 메인%d: %s %d분 (약 %dm)\n", i + 1, i + 2, travelMode, minutes, meters));
+            totalTravelSeconds += info.get("duration");
+            totalTravelMeters += meters;
+        }
+        int totalTravelMin = totalTravelSeconds / 60;
+        double totalKm = totalTravelMeters / 1000.0;
+        travelInfoBuilder.append(String.format("이동 합계: %s %d분, 약 %.1fkm\n", travelMode, totalTravelMin, totalKm));
+        travelInfoBuilder.append("(메인 장소 → 바로 옆 짝꿍 서브 장소 이동은 '도보 3분 이내'로 표기)");
+        String travelInfoStr = travelInfoBuilder.toString();
+
         // 6. 메인 장소와 서브 장소(맛집/카페) 짝짓기
         StringBuilder pairedDataBuilder = new StringBuilder();
         int mainCount = 0;
@@ -245,12 +272,13 @@ public class TestController {
                         "[★제공된 초밀착 페어링 데이터★]\n" +
                         "%s\n" +
                         "(주의: 반드시 위에서 제공된 데이터만 추천해!)\n\n" +
+                        "%s\n\n" +
                         "[★동선 설계 철칙★]\n" +
                         "1. (초강력 경고) 무조건 내가 제공한 '★ 메인 장소'와 '➔ 짝꿍 서브 장소'에 있는 실제 장소 이름만 사용해! 가짜 이름을 절대 지어내지 마!\n" +
                         "2. 내가 제공한 데이터가 3개면 3개로, 5개면 5개로만 코스를 짜. 억지로 개수를 채우지 마.\n" +
                         "3. 🚨 [매우 중요] 내가 제공한 '➔ 짝꿍 서브 장소(맛집/카페)'는 절대로 누락하지 말고, 반드시 코스(plans 배열)의 적절한 순서에 무조건 포함시켜!\n" +
                         "4. [초강력 경고] 내가 제공한 텍스트의 순서(메인 1 ➔ 짝꿍 서브 1 ➔ 메인 2...)를 100%% 완벽하게 똑같이 유지해서 JSON 배열(plans)에 넣어! 절대로 네 마음대로 장소의 순서를 섞거나, 카테고리별로 재배치하지 마! 지도에 그릴 때 선이 꼬이게 됨!\n" +
-                        "5. 장소 간 이동하는 'distToNext'는 거리를 고려해서 '도보 O분' 또는 '차량 O분'으로 현실성 있게 적어.\n" +
+                        "5. distToNext는 위에서 제공된 '★실측 이동 시간 데이터'를 반드시 그대로 사용해. 메인 장소 → 짝꿍 서브 장소까지는 '도보 3분 이내', 서브 장소 → 다음 메인 장소까지는 해당 구간의 실측값을 그대로 써.\n" +
                         "6. 각 장소가 '실내'인지 '실외'인지 판단해줘.\n" +
                         "7. 전체 코스의 '총 예상 소요 시간'과 '총 예상 이동 거리'를 계산해줘.\n" +
                         "8. 오직 아래 JSON 형식으로만 응답해. 배열이 아니라 객체 형태야!\n\n" +
@@ -263,7 +291,7 @@ public class TestController {
                         "    {\"theme\": \"맛집/카페\", \"name\": \"식당명A\", \"indoorOutdoor\": \"실내\", \"lat\": 35.xxx, \"lng\": 126.xxx, \"description\": \"방금 구경한 장소 바로 근처 맛집입니다.\", \"distToNext\": \"도보 5분\"}\n" +
                         "  ]\n" +
                         "}",
-                district, preference, mbti, budget, time, vehicle, pairedDataString
+                district, preference, mbti, budget, time, vehicle, pairedDataString, travelInfoStr
         );
 
         return chatGptService.getChatResponse(mbti, "Gwangju", prompt);
