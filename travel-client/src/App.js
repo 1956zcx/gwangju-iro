@@ -291,7 +291,11 @@ function App() {
                                         </div>
                                     )}
                                     <a
-                                        href={`https://map.kakao.com/link/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`}
+                                        href={
+                                            index === 0
+                                                ? `https://map.kakao.com/link/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`
+                                                : `https://map.kakao.com/link/from/${encodeURIComponent(plans[index-1].name)},${plans[index-1].lat},${plans[index-1].lng}/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`
+                                        }
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         onClick={(e) => e.stopPropagation()}
