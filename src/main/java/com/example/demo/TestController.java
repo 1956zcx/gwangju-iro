@@ -273,7 +273,7 @@ public class TestController {
                         subLabel = travelMode;
                     }
                     pairedDataBuilder.append(String.format(
-                            "  ➔ 짝꿍 서브 장소 %d: [%s: %s (lat:%f, lng:%f)] (이동: %s %d분, 약 %dm)\n",
+                            "  ➔ 짝꿍 서브 장소 %d: [%s: %s (lat:%f, lng:%f)] (이동: %s %d분 (약 %dm))\n",
                             subCount + 1, matchedSub.getDetailCategory(), matchedSub.getName(), matchedSub.getLat(), matchedSub.getLng(),
                             subLabel, subMinutes, subMeters
                     ));
@@ -310,7 +310,7 @@ public class TestController {
                         "2. 내가 제공한 데이터가 3개면 3개로, 5개면 5개로만 코스를 짜. 억지로 개수를 채우지 마.\n" +
                         "3. 🚨 [매우 중요] 내가 제공한 '➔ 짝꿍 서브 장소(맛집/카페)'는 절대로 누락하지 말고, 반드시 코스(plans 배열)의 적절한 순서에 무조건 포함시켜!\n" +
                         "4. [초강력 경고] 내가 제공한 텍스트의 순서(메인 1 ➔ 짝꿍 서브 1 ➔ 메인 2...)를 100%% 완벽하게 똑같이 유지해서 JSON 배열(plans)에 넣어! 절대로 네 마음대로 장소의 순서를 섞거나, 카테고리별로 재배치하지 마! 지도에 그릴 때 선이 꼬이게 됨!\n" +
-                        "5. distToNext는 실측 데이터를 반드시 그대로 사용해. 메인→서브 이동시간은 pairedData의 '(이동: X분)' 값을, 서브→다음 메인 또는 메인→다음 메인 이동시간은 '★실측 이동 시간 데이터'의 값을 그대로 써.\n" +
+                        "5. distToNext는 반드시 실측 데이터를 그대로 사용해. 메인→서브는 pairedData의 '(이동: X분 (약 Ym))' 값을, 서브→다음 메인·메인→다음 메인은 '★실측 이동 시간 데이터'의 값을 그대로 복사해. 반드시 '도보 X분 (약 Ym)' 형식을 유지해.\n" +
                         "6. 각 장소가 '실내'인지 '실외'인지 판단해줘.\n" +
                         "7. 전체 코스의 '총 예상 소요 시간'과 '총 예상 이동 거리'를 계산해줘.\n" +
                         "8. 오직 아래 JSON 형식으로만 응답해. 배열이 아니라 객체 형태야!\n\n" +
@@ -319,8 +319,8 @@ public class TestController {
                         "  \"totalTime\": \"약 6시간\",\n" +
                         "  \"totalDistance\": \"약 12km\",\n" +
                         "  \"plans\": [\n" +
-                        "    {\"theme\": \"놀거리\", \"name\": \"장소명A\", \"indoorOutdoor\": \"실내\", \"lat\": 35.xxx, \"lng\": 126.xxx, \"description\": \"추천 이유\", \"distToNext\": \"도보 3분 이내\"},\n" +
-                        "    {\"theme\": \"맛집/카페\", \"name\": \"식당명A\", \"indoorOutdoor\": \"실내\", \"lat\": 35.xxx, \"lng\": 126.xxx, \"description\": \"방금 구경한 장소 바로 근처 맛집입니다.\", \"distToNext\": \"도보 5분\"}\n" +
+                        "    {\"theme\": \"놀거리\", \"name\": \"장소명A\", \"indoorOutdoor\": \"실내\", \"lat\": 35.xxx, \"lng\": 126.xxx, \"description\": \"추천 이유\", \"distToNext\": \"도보 7분 (약 480m)\"},\n" +
+                        "    {\"theme\": \"맛집/카페\", \"name\": \"식당명A\", \"indoorOutdoor\": \"실내\", \"lat\": 35.xxx, \"lng\": 126.xxx, \"description\": \"방금 구경한 장소 바로 근처 맛집입니다.\", \"distToNext\": \"도보 12분 (약 850m)\"}\n" +
                         "  ]\n" +
                         "}",
                 district, preference, mbti, budget, time, vehicle, pairedDataString, travelInfoStr
