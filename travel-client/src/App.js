@@ -179,26 +179,27 @@ function App() {
             alert('카카오 SDK가 로드되지 않았습니다. 페이지를 새로고침해주세요.');
             return;
         }
-        const placeList = plans.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
-        const rawDesc = `${placeList}\n\n⏳ ${totalSummary.time}  🚗 ${totalSummary.distance}`;
-        const description = rawDesc.length > 190 ? rawDesc.substring(0, 187) + '...' : rawDesc;
+        const preview = plans.slice(0, 3).map((p, i) => `${i + 1}. ${p.name}`).join('\n');
+        const more = plans.length > 3 ? ` 외 ${plans.length - 3}곳` : '';
+        const description = `${preview}${more}\n⏳ ${totalSummary.time}  🚗 ${totalSummary.distance}`;
+        const siteUrl = 'https://gwangju-iro.vercel.app';
         window.Kakao.Share.sendDefault({
             objectType: 'feed',
             content: {
                 title: `📍 광주 이로 - ${district} ${time.split(' ')[0]} 코스`,
                 description,
-                imageUrl: 'https://gwangju-iro.vercel.app/logo512.png',
+                imageUrl: `${siteUrl}/logo512.png`,
                 link: {
-                    mobileWebUrl: 'https://gwangju-iro.vercel.app',
-                    webUrl: 'https://gwangju-iro.vercel.app',
+                    mobileWebUrl: siteUrl,
+                    webUrl: siteUrl,
                 }
             },
             buttons: [
                 {
-                    title: '코스 보러가기',
+                    title: '코스 확인하기',
                     link: {
-                        mobileWebUrl: 'https://gwangju-iro.vercel.app',
-                        webUrl: 'https://gwangju-iro.vercel.app',
+                        mobileWebUrl: siteUrl,
+                        webUrl: siteUrl,
                     }
                 }
             ]
