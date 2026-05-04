@@ -46,6 +46,7 @@ function App() {
         if (window.Kakao && !window.Kakao.isInitialized()) {
             window.Kakao.init('181f347746ff790346069e9bf4f42f17');
         }
+        axios.defaults.headers.common['ngrok-skip-browser-warning'] = '69420';
     }, []);
 
     // ★ GPS 가져오는 함수
