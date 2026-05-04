@@ -1,23 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import KakaoMapService from './KakaoMapService';
 
 function App() {
+    // 기존 state
     const [mbti, setMbti] = useState('');
-    const [budget, setBudget] = useState('5만원');
+    const [budget, setBudget] = useState('5만원 (적당함)');
     const [time, setTime] = useState('6시간 (반나절)');
     const [vehicle, setVehicle] = useState('뚜벅이 (대중교통/도보)');
     const [district, setDistrict] = useState('동구');
-
     const [preference, setPreference] = useState('쇼핑/트렌드 (백화점, 핫플)');
-
     const [plans, setPlans] = useState([]);
     const [loading, setLoading] = useState(false);
     const [excludePlaces, setExcludePlaces] = useState([]);
     const [selectedLocation, setSelectedLocation] = useState(null);
     const [totalSummary, setTotalSummary] = useState({ time: "", distance: "" });
-    // ✅ 1. 추가: 내 실제 위치를 저장할 상태
     const [userLocation, setUserLocation] = useState(null);
+
+    // 로그인/코스 저장 state
+    const [token, setToken] = useState(localStorage.getItem('token'));
+    const [userInfo, setUserInfo] = useState(() => {
+        const saved = localStorage.getItem('userInfo');
+        return saved ? JSON.parse(saved) : null;
+    });
+    const [showMyCourses, setShowMyCourses] = useState(false);
+    const [myCourses, setMyCourses] = useState([]);
+    const [myCoursesLoading, setMyCoursesLoading] = useState(false);
+
+    const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:8080";
 
     const districtCoords = {
         "동구": { lat: 35.1460, lng: 126.9230 },
@@ -32,7 +42,13 @@ function App() {
         'ESTP', 'ESFP', 'ENFP', 'ENTP', 'ESTJ', 'ESFJ', 'ENFJ', 'ENTJ'
     ];
 
-    // ★ 1. GPS 가져오는 함수 (getTravelPlan 위에 추가)
+    useEffect(() => {
+        if (window.Kakao && !window.Kakao.isInitialized()) {
+            window.Kakao.init('181f347746ff790346069e9bf4f42f17');
+        }
+    }, []);
+
+    // ★ GPS 가져오는 함수
     const getUserLocation = () => {
         return new Promise((resolve, reject) => {
             if (navigator.geolocation) {
@@ -59,7 +75,6 @@ function App() {
 
         setLoading(true);
         try {
-            // ★ 2. GPS 로직 분기 처리
             let requestLat;
             let requestLng;
 
@@ -68,10 +83,7 @@ function App() {
                     const loc = await getUserLocation();
                     requestLat = loc.lat;
                     requestLng = loc.lng;
-
-                    // ✅ 2. 추가: 가져온 내 위치를 지도에게 주기 위해 State에 저장!
                     setUserLocation({ lat: requestLat, lng: requestLng });
-
                     console.log("📍 내 위치 가져오기 성공:", requestLat, requestLng);
                 } catch (error) {
                     alert("위치 정보를 가져올 수 없습니다. 브라우저의 위치 권한을 허용해주세요!");
@@ -79,21 +91,18 @@ function App() {
                     return;
                 }
             } else {
-                // 기존 지역구 선택 시 하드코딩된 좌표 사용
                 requestLat = districtCoords[district].lat;
                 requestLng = districtCoords[district].lng;
             }
 
             const excludeParam = excludePlaces.join(',');
-            const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:8080";
 
-            // ★ 3. param에 coords.lat 대신 requestLat 변수 사용
             const response = await axios.get(`${API_BASE_URL}/api/recommend`, {
                 params: {
                     mbti, budget, time, vehicle, district,
                     preference,
-                    lat: requestLat, // 수정됨
-                    lng: requestLng, // 수정됨
+                    lat: requestLat,
+                    lng: requestLng,
                     exclude: excludeParam,
                     t: Date.now()
                 },
@@ -104,7 +113,6 @@ function App() {
 
             const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
 
-            // ✅ 데이터가 '객체'이고 그 안에 'plans' 배열이 있는지 확인
             if (data && Array.isArray(data.plans)) {
                 setPlans(data.plans);
                 setTotalSummary({ time: data.totalTime, distance: data.totalDistance });
@@ -129,6 +137,158 @@ function App() {
         }
     };
 
+    // 카카오 로그인
+    const handleKakaoLogin = () => {
+        if (!window.Kakao || !window.Kakao.isInitialized()) {
+            alert('카카오 SDK가 로드되지 않았습니다. 페이지를 새로고침해주세요.');
+            return;
+        }
+        window.Kakao.Auth.login({
+            success: async (auth) => {
+                try {
+                    const res = await axios.post(`${API_BASE_URL}/api/auth/kakao`, {
+                        accessToken: auth.access_token
+                    });
+                    const { token: jwt, nickname, profileImage } = res.data;
+                    localStorage.setItem('token', jwt);
+                    localStorage.setItem('userInfo', JSON.stringify({ nickname, profileImage }));
+                    setToken(jwt);
+                    setUserInfo({ nickname, profileImage });
+                } catch (e) {
+                    alert('로그인에 실패했습니다. 다시 시도해주세요.');
+                }
+            },
+            fail: (err) => {
+                console.error('카카오 로그인 실패:', err);
+                alert('카카오 로그인에 실패했습니다.');
+            }
+        });
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('userInfo');
+        setToken(null);
+        setUserInfo(null);
+        setShowMyCourses(false);
+    };
+
+    // 카톡 공유
+    const shareCourse = () => {
+        if (!window.Kakao || !window.Kakao.isInitialized()) {
+            alert('카카오 SDK가 로드되지 않았습니다. 페이지를 새로고침해주세요.');
+            return;
+        }
+        const placeList = plans.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
+        const rawDesc = `${placeList}\n\n⏳ ${totalSummary.time}  🚗 ${totalSummary.distance}`;
+        const description = rawDesc.length > 190 ? rawDesc.substring(0, 187) + '...' : rawDesc;
+        window.Kakao.Share.sendDefault({
+            objectType: 'feed',
+            content: {
+                title: `📍 광주 이로 - ${district} ${time.split(' ')[0]} 코스`,
+                description,
+                imageUrl: 'https://gwangju-iro.vercel.app/logo512.png',
+                link: {
+                    mobileWebUrl: 'https://gwangju-iro.vercel.app',
+                    webUrl: 'https://gwangju-iro.vercel.app',
+                }
+            },
+            buttons: [
+                {
+                    title: '코스 보러가기',
+                    link: {
+                        mobileWebUrl: 'https://gwangju-iro.vercel.app',
+                        webUrl: 'https://gwangju-iro.vercel.app',
+                    }
+                }
+            ]
+        });
+    };
+
+    // 코스 저장
+    const saveCourse = async () => {
+        if (!token) {
+            if (window.confirm('로그인이 필요합니다. 카카오 로그인하시겠습니까?')) {
+                handleKakaoLogin();
+            }
+            return;
+        }
+        const today = new Date().toLocaleDateString('ko-KR');
+        const defaultTitle = `${district} 코스 - ${today}`;
+        const inputTitle = window.prompt('코스 이름을 입력하세요\n(비워두면 기본 이름으로 저장됩니다)', defaultTitle);
+        if (inputTitle === null) return;
+        const title = inputTitle.trim() || defaultTitle;
+
+        const conditions = JSON.stringify({ mbti, budget, time, vehicle, district, preference });
+        const courseJson = JSON.stringify({
+            totalTime: totalSummary.time,
+            totalDistance: totalSummary.distance,
+            plans
+        });
+        try {
+            await axios.post(`${API_BASE_URL}/api/courses/save`,
+                { title, courseJson, district, conditions },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            alert('코스가 저장되었습니다!');
+        } catch (e) {
+            alert('저장에 실패했습니다. 다시 시도해주세요.');
+        }
+    };
+
+    // 내 코스 목록 조회
+    const fetchMyCourses = async () => {
+        if (!token) {
+            alert('로그인이 필요합니다.');
+            return;
+        }
+        setShowMyCourses(true);
+        setMyCoursesLoading(true);
+        try {
+            const res = await axios.get(`${API_BASE_URL}/api/courses/my`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setMyCourses(res.data);
+        } catch (e) {
+            alert('코스 목록을 불러오는데 실패했습니다.');
+            setShowMyCourses(false);
+        } finally {
+            setMyCoursesLoading(false);
+        }
+    };
+
+    // 저장된 코스 상세 보기
+    const viewCourse = async (id) => {
+        try {
+            const res = await axios.get(`${API_BASE_URL}/api/courses/my/${id}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = JSON.parse(res.data.courseJson);
+            setPlans(data.plans);
+            setTotalSummary({ time: data.totalTime, distance: data.totalDistance });
+            setUserLocation(null);
+            setSelectedLocation(null);
+            setShowMyCourses(false);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (e) {
+            alert('코스를 불러오는데 실패했습니다.');
+        }
+    };
+
+    // 코스 삭제
+    const deleteCourse = async (e, id) => {
+        e.stopPropagation();
+        if (!window.confirm('이 코스를 삭제하시겠습니까?')) return;
+        try {
+            await axios.delete(`${API_BASE_URL}/api/courses/my/${id}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setMyCourses(prev => prev.filter(c => c.id !== id));
+        } catch (e) {
+            alert('삭제에 실패했습니다.');
+        }
+    };
+
     const selectStyle = {
         padding: '10px', fontSize: '15px', borderRadius: '5px', border: '1px solid #ccc',
         width: '100%', marginBottom: '15px'
@@ -136,6 +296,100 @@ function App() {
 
     return (
         <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif', maxWidth: '800px', margin: '0 auto' }}>
+
+            {/* 상단 로그인 바 */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                {userInfo ? (
+                    <>
+                        <span style={{ fontSize: '14px', color: '#555' }}>👤 {userInfo.nickname}님</span>
+                        <button
+                            onClick={fetchMyCourses}
+                            style={{ padding: '6px 14px', fontSize: '13px', borderRadius: '6px', border: '1px solid #2c3e50', backgroundColor: '#fff', color: '#2c3e50', cursor: 'pointer' }}
+                        >
+                            내 코스
+                        </button>
+                        <button
+                            onClick={handleLogout}
+                            style={{ padding: '6px 14px', fontSize: '13px', borderRadius: '6px', border: '1px solid #ccc', backgroundColor: '#fff', color: '#888', cursor: 'pointer' }}
+                        >
+                            로그아웃
+                        </button>
+                    </>
+                ) : (
+                    <button
+                        onClick={handleKakaoLogin}
+                        style={{ padding: '8px 18px', fontSize: '14px', borderRadius: '6px', border: 'none', backgroundColor: '#fee500', color: '#3c1e1e', cursor: 'pointer', fontWeight: 'bold' }}
+                    >
+                        카카오 로그인
+                    </button>
+                )}
+            </div>
+
+            {/* 내 코스 패널 */}
+            {showMyCourses && (
+                <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: '10px', padding: '20px', marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                        <h3 style={{ margin: 0, color: '#2c3e50' }}>📚 내 저장 코스</h3>
+                        <button
+                            onClick={() => setShowMyCourses(false)}
+                            style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    {myCoursesLoading ? (
+                        <p style={{ textAlign: 'center', color: '#888' }}>불러오는 중...</p>
+                    ) : myCourses.length === 0 ? (
+                        <p style={{ textAlign: 'center', color: '#888' }}>저장된 코스가 없습니다.</p>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {myCourses.map(course => (
+                                <div
+                                    key={course.id}
+                                    onClick={() => viewCourse(course.id)}
+                                    style={{
+                                        padding: '14px 16px', background: '#f8f9fa', borderRadius: '8px',
+                                        border: '1px solid #eee', cursor: 'pointer', display: 'flex',
+                                        justifyContent: 'space-between', alignItems: 'center'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = '#edf2f7'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = '#f8f9fa'}
+                                >
+                                    <div>
+                                        <div style={{ fontWeight: 'bold', fontSize: '15px', color: '#2c3e50' }}>{course.title}</div>
+                                        {course.conditions && (() => {
+                                            try {
+                                                const c = JSON.parse(course.conditions);
+                                                return (
+                                                    <div style={{ fontSize: '12px', color: '#555', marginTop: '4px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                                        <span style={{ background: '#edf2f7', padding: '1px 6px', borderRadius: '4px' }}>{c.mbti}</span>
+                                                        <span style={{ background: '#edf2f7', padding: '1px 6px', borderRadius: '4px' }}>{c.time?.split(' ')[0]}</span>
+                                                        <span style={{ background: '#edf2f7', padding: '1px 6px', borderRadius: '4px' }}>{c.budget?.split(' (')[0]}</span>
+                                                        <span style={{ background: '#edf2f7', padding: '1px 6px', borderRadius: '4px' }}>{c.vehicle?.includes('뚜벅') ? '뚜벅이' : '자가용'}</span>
+                                                        <span style={{ background: '#edf2f7', padding: '1px 6px', borderRadius: '4px' }}>{c.preference?.split(' (')[0]}</span>
+                                                    </div>
+                                                );
+                                            } catch { return null; }
+                                        })()}
+                                        <div style={{ fontSize: '12px', color: '#aaa', marginTop: '3px' }}>
+                                            {new Date(course.createdAt).toLocaleDateString('ko-KR')}
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={(e) => deleteCourse(e, course.id)}
+                                        style={{ background: 'none', border: 'none', color: '#ccc', fontSize: '18px', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px' }}
+                                        onMouseEnter={(e) => e.currentTarget.style.color = '#e74c3c'}
+                                        onMouseLeave={(e) => e.currentTarget.style.color = '#ccc'}
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             <h1 style={{ textAlign: 'center', color: '#2c3e50', marginBottom: '10px' }}>📍 광주 이로</h1>
             <p style={{ textAlign: 'center', color: '#666', marginBottom: '30px' }}>당신의 상황과 성향에 딱 맞는 완벽한 하루 코스</p>
 
@@ -230,9 +484,31 @@ function App() {
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
                             <h3 style={{ color: '#2c3e50', margin: 0 }}>📝 추천 일정표</h3>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    onClick={shareCourse}
+                                    style={{
+                                        padding: '7px 16px', fontSize: '13px', fontWeight: 'bold',
+                                        borderRadius: '6px', border: 'none', backgroundColor: '#fee500',
+                                        color: '#3c1e1e', cursor: 'pointer'
+                                    }}
+                                >
+                                    💬 카톡 공유
+                                </button>
+                                <button
+                                    onClick={saveCourse}
+                                    style={{
+                                        padding: '7px 16px', fontSize: '13px', fontWeight: 'bold',
+                                        borderRadius: '6px', border: 'none', backgroundColor: '#2c3e50',
+                                        color: '#fff', cursor: 'pointer'
+                                    }}
+                                >
+                                    💾 저장하기
+                                </button>
+                            </div>
                         </div>
 
-                        {/* ✅ 새로 추가된 요약 정보 상자 (총 시간/거리) */}
+                        {/* 총 시간/거리 요약 */}
                         <div style={{
                             background: '#e8f4f8', padding: '15px', borderRadius: '10px',
                             color: '#0056b3', border: '1px solid #b8daff', marginBottom: '5px'
@@ -304,7 +580,7 @@ function App() {
                                     )}
                                 </div>
 
-                                {/* 카드 사이 이동 정보 연결 요소 (마지막 카드 다음엔 표시 안 함) */}
+                                {/* 카드 사이 이동 정보 연결 요소 */}
                                 {index !== plans.length - 1 && (
                                     <div style={{
                                         display: 'flex', alignItems: 'center', gap: '10px',
@@ -341,8 +617,6 @@ function App() {
                     <div style={{ flex: 1, position: 'sticky', top: '20px' }}>
                         <KakaoMapService
                             initialData={plans}
-                            // ✅ 3. 수정: '내주변'일 때는 userLocation을, 아닐 때는 해당 구의 좌표를 줍니다.
-                            // (만약 userLocation이 아직 없다면 광주시청 좌표를 임시로 줍니다)
                             centerCoords={
                                 district === '내주변'
                                     ? (userLocation || { lat: 35.1595, lng: 126.8526 })
