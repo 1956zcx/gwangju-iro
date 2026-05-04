@@ -56,6 +56,11 @@ public class TestController {
         else if (preference.contains("자연")) corePreference = "자연/공원";
         else corePreference = preference;
 
+        System.out.printf("%n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%n");
+        System.out.printf("[요청] %s | %s | %s | %s | %s%n",
+                mbti, district, vehicle.contains("뚜벅이") ? "뚜벅이" : "자가용", time, corePreference);
+        System.out.printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%n");
+
         // ✅ 3. 이동 수단에 따른 DB 필터링 조건 (리스트로 만들기)
         List<String> accessibilities = new ArrayList<>();
         if (vehicle.contains("자가용")) {
@@ -75,7 +80,7 @@ public class TestController {
         boolean isGastronomyTour = preference.contains("맛집") || preference.contains("먹방");
 
         if (district.equals("내주변") || district.equals("현재위치")) {
-            System.out.println("📍 [모드] 현재 위치 기반 반경 4km 검색 시작");
+            System.out.println("[장소] 현재위치 반경 4km 검색 중...");
 
             // 맛집 모드면 서브장소를, 아니면 일반 메인장소를 검색
             if (isGastronomyTour) {
@@ -86,7 +91,7 @@ public class TestController {
 
             // 🚨 구명조끼 발동
             if (mainSpots.size() < requiredMains) {
-                System.out.println("⚠️ 반경 내 장소 부족! 범위 확대 검색!");
+                System.out.println("[장소] ⚠ 반경 내 부족 → 광역 검색 확대");
                 List<PlaceDto> backupSpots;
                 if (isGastronomyTour) {
                     backupSpots = placeDbService.getFoodSpotsAsMain("", accessibilities); // 맛집 광역검색
@@ -100,14 +105,14 @@ public class TestController {
                 }
             }
         } else {
-            System.out.println("🗺️ [모드] 특정 지역구(" + district + ") 검색 시작");
+            System.out.printf("[장소] %s 검색 중...%n", district);
             if (isGastronomyTour) {
                 mainSpots = placeDbService.getFoodSpotsAsMain(district, accessibilities);
             } else {
                 mainSpots = placeDbService.getMainSpots(corePreference, district, accessibilities);
             }
         }
-        System.out.println("🚨 [디버깅] 최종 메인 장소 개수: " + mainSpots.size());
+        System.out.printf("[장소] 메인 후보 %d개 확보%n", mainSpots.size());
         // ====================================================================
 
         // =========================================================================
@@ -138,6 +143,13 @@ public class TestController {
                 mainSpots.remove(nearestIndex);
             }
         }
+
+        StringBuilder orderLog = new StringBuilder();
+        for (int i = 0; i < Math.min(optimizedSpots.size(), requiredMains); i++) {
+            if (i > 0) orderLog.append(" → ");
+            orderLog.append(optimizedSpots.get(i).getName());
+        }
+        System.out.printf("[동선] %s%n", orderLog);
         // =========================================================================
 
         // 5.5. 실측 이동 시간 계산 (카카오 모빌리티 API / Haversine)
@@ -146,6 +158,7 @@ public class TestController {
         StringBuilder travelInfoBuilder = new StringBuilder();
         travelInfoBuilder.append("[★실측 이동 시간 데이터 (distToNext에 반드시 그대로 사용)★]\n");
 
+        Map<String, Map<String, Integer>> travelCache = new HashMap<>();
         int totalTravelSeconds = 0;
         int mainSegMeters = 0;
         int usableMainCount = Math.min(optimizedSpots.size(), requiredMains);
@@ -155,18 +168,22 @@ public class TestController {
             PlaceDto to = optimizedSpots.get(i + 1);
             Map<String, Integer> info = kakaoLocalApiService.getTravelInfo(
                     from.getLat(), from.getLng(), to.getLat(), to.getLng(), isWalkingMode);
+            travelCache.put(from.getLat() + "|" + from.getLng() + "|" + to.getLat() + "|" + to.getLng(), info);
             int meters = info.get("distance");
 
             String segmentLabel;
             int minutes;
 
             if (!isWalkingMode && meters < 600) {
-                // 자가용이지만 600m 미만 → 도보
-                minutes = Math.max(1, (int) (meters / (4000.0 / 60.0)));
+                minutes = Math.max(1, (int) (meters / (5000.0 / 60.0)));
                 segmentLabel = "도보";
-            } else if (isWalkingMode && meters >= 1000) {
-                // 뚜벅이인데 1km 이상 → 대중교통 (대기 5분 + 20km/h 기준 이동시간)
-                minutes = Math.max(8, 5 + (int) (meters / 333.0));
+            } else if (isWalkingMode && info.getOrDefault("isTransit", 0) == 1) {
+                // ODSAY 실측 대중교통 시간
+                minutes = Math.max(1, info.get("duration") / 60);
+                segmentLabel = "대중교통";
+            } else if (isWalkingMode && meters >= 1700) {
+                // ODSAY 미설정/실패 시 공식 폴백
+                minutes = Math.max(15, 12 + (int) (meters / 200.0));
                 segmentLabel = "대중교통";
             } else {
                 minutes = Math.max(1, info.get("duration") / 60);
@@ -219,32 +236,24 @@ public class TestController {
                 PlaceDto matchedSub = null;
 
                 if (isGastronomyTour) {
-                    // 🏃 [맛집 투어 모드] 배부르니까 서브 장소로 '소화시킬 관광지(메인 카테고리)'를 찾음!
-                    System.out.println("🏃 [소화 모드] 맛집 주변 관광지 검색 시작!");
                     List<PlaceDto> digestSpots = placeDbService.getNearbyMainSpots(spot.getLat(), spot.getLng(), accessibilities);
-
-                    // 🚨 여기에 CCTV (디버깅 코드) 추가!
-                    System.out.println("🔎 [" + spot.getName() + "] 주변 1km 내 관광지 검색 결과: " + digestSpots.size() + "개 찾음!");
-
                     for (PlaceDto digestSpot : digestSpots) {
                         if (!exclude.contains(digestSpot.getName()) && !usedNames.contains(digestSpot.getName())) {
                             matchedSub = digestSpot;
-                            System.out.println("🏃 DB 소화용 관광지 매칭 성공: " + matchedSub.getName());
+                            System.out.printf("[서브] %s → %s (DB 관광지)%n", spot.getName(), matchedSub.getName());
                             break;
                         }
                     }
                 } else {
-                    // 🏠 [일반 모드] 구경했으니까 서브 장소로 '식당/카페'를 찾음! (기존 로직 살짝 다듬음)
                     List<PlaceDto> dbSubSpots = placeDbService.getSubSpots(spot.getLat(), spot.getLng(), 400, accessibilities);
                     for(PlaceDto f : dbSubSpots){
                         if(!exclude.contains(f.getName()) && !usedNames.contains(f.getName())){
                             matchedSub = f;
-                            System.out.println("🏠 DB 서브장소 매칭 성공: " + matchedSub.getName());
+                            System.out.printf("[서브] %s → %s (DB 맛집)%n", spot.getName(), matchedSub.getName());
                             break;
                         }
                     }
 
-                    // 카카오 API 폴백 (DB에 없을 때)
                     if (matchedSub == null) {
                         List<PlaceDto> nearbyFoods = kakaoLocalApiService.getNearbyFoods(spot.getLat(), spot.getLng(), 800, budget);
                         if (nearbyFoods.isEmpty()) {
@@ -253,7 +262,7 @@ public class TestController {
                         for(PlaceDto f : nearbyFoods){
                             if(!exclude.contains(f.getName()) && !usedNames.contains(f.getName())){
                                 matchedSub = f;
-                                System.out.println("🌐 카카오 API 서브장소 매칭: " + matchedSub.getName());
+                                System.out.printf("[서브] %s → %s (카카오API)%n", spot.getName(), matchedSub.getName());
                                 break;
                             }
                         }
@@ -280,22 +289,30 @@ public class TestController {
         for (int i = 0; i < finalSpotOrder.size() - 1; i++) {
             PlaceDto from = finalSpotOrder.get(i);
             PlaceDto to = finalSpotOrder.get(i + 1);
-            Map<String, Integer> segInfo = kakaoLocalApiService.getTravelInfo(
-                    from.getLat(), from.getLng(), to.getLat(), to.getLng(), isWalkingMode);
+            String cacheKey = from.getLat() + "|" + from.getLng() + "|" + to.getLat() + "|" + to.getLng();
+            Map<String, Integer> segInfo = travelCache.containsKey(cacheKey)
+                    ? travelCache.get(cacheKey)
+                    : kakaoLocalApiService.getTravelInfo(from.getLat(), from.getLng(), to.getLat(), to.getLng(), isWalkingMode);
             int segMeters = segInfo.get("distance");
             String segLabel;
             int segMinutes;
             if (!isWalkingMode && segMeters < 600) {
-                segMinutes = Math.max(1, (int) (segMeters / (4000.0 / 60.0)));
+                segMinutes = Math.max(1, (int) (segMeters / (5000.0 / 60.0)));
                 segLabel = "도보";
-            } else if (isWalkingMode && segMeters >= 1000) {
-                segMinutes = Math.max(8, 5 + (int) (segMeters / 333.0));
+            } else if (isWalkingMode && segInfo.getOrDefault("isTransit", 0) == 1) {
+                // ODSAY 실측 대중교통 시간
+                segMinutes = Math.max(1, segInfo.get("duration") / 60);
+                segLabel = "대중교통";
+            } else if (isWalkingMode && segMeters >= 1700) {
+                // ODSAY 미설정/실패 시 공식 폴백
+                segMinutes = Math.max(15, 12 + (int) (segMeters / 200.0));
                 segLabel = "대중교통";
             } else {
                 segMinutes = Math.max(1, segInfo.get("duration") / 60);
                 segLabel = travelMode;
             }
-            distToNextMap.put(from.getName(), segLabel + " " + segMinutes + "분 (약 " + segMeters + "m)");
+            distToNextMap.put(from.getName(), segLabel + " 약 " + segMinutes + "분 (약 " + segMeters + "m)");
+            System.out.printf("[이동] %s → %s : %s 약 %d분 (%dm)%n", from.getName(), to.getName(), segLabel, segMinutes, segMeters);
             totalTravelMin += segMinutes;
             totalTravelMeters += segMeters;
         }
@@ -322,7 +339,7 @@ public class TestController {
 
         String pairedDataString = pairedDataBuilder.toString();
 
-        // 8. GPT 프롬프트 (환각 방지 + 맛집 누락 방지 완벽 적용)
+        // 8. GPT 프롬프트 (환각 방지 + 맛집 누락 방지 완벽
         String prompt = String.format(
                 "너는 '광주 이로'의 수석 AI 여행 플래너야. 자바 코드가 물리적으로 완벽하게 짝지어둔 장소 데이터만 제공할게!\n\n" +
                         "[사용자 조건]\n" +
@@ -357,7 +374,9 @@ public class TestController {
                 district, preference, mbti, budget, time, vehicle, pairedDataString, travelInfoStr
         );
 
+        System.out.printf("[GPT] 요청 전송 (장소 %d개)...%n", finalSpotOrder.size());
         String gptResponse = chatGptService.getChatResponse(mbti, "Gwangju", prompt);
+        System.out.println("[GPT] 응답 수신 완료");
 
         // 실측 distToNext 주입 (GPT가 생성한 값을 백엔드 계산값으로 완전히 교체)
         try {
@@ -377,9 +396,12 @@ public class TestController {
             }
             root.put("totalTime", totalTimeStr);
             root.put("totalDistance", totalDistanceStr);
+            System.out.printf("[완료] 이동 %d분 / %.1fkm | 체류 %d분 | 총 %s%n",
+                    totalTravelMin, totalTravelMeters / 1000.0, totalStayMin, totalTimeStr);
+            System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             return mapper.writeValueAsString(root);
         } catch (Exception e) {
-            System.err.println("distToNext 주입 실패, GPT 원본 반환: " + e.getMessage());
+            System.err.println("[오류] distToNext 주입 실패, GPT 원본 반환: " + e.getMessage());
             return gptResponse;
         }
     }

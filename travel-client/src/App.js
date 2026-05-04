@@ -244,73 +244,96 @@ function App() {
                         </div>
 
                         {plans.map((spot, index) => (
-                            <div
-                                key={index}
-                                onClick={() => setSelectedLocation({ lat: spot.lat, lng: spot.lng })}
-                                style={{
-                                    padding: '15px',
-                                    background: '#f8f9fa',
-                                    borderRadius: '8px',
-                                    borderLeft: '5px solid #e74c3c',
-                                    cursor: 'pointer',
-                                    boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-                                    transition: 'all 0.2s ease',
-                                    border: selectedLocation?.lat === spot.lat ? '1px solid #e74c3c' : '1px solid transparent'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-                                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-                            >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                                    <h4 style={{ margin: 0, fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        {index + 1}. {spot.name}
-
-                                        {/* ✅ 새로 추가된 실내/실외 뱃지 */}
-                                        <span style={{
-                                            fontSize: '11px', padding: '2px 6px', borderRadius: '4px', color: '#fff',
-                                            backgroundColor: spot.indoorOutdoor === '실내' ? '#3498db' : '#2ecc71',
-                                            fontWeight: 'normal'
-                                        }}>
-                                            {spot.indoorOutdoor || '정보없음'}
+                            <React.Fragment key={index}>
+                                {/* 장소 카드 */}
+                                <div
+                                    onClick={() => setSelectedLocation({ lat: spot.lat, lng: spot.lng })}
+                                    style={{
+                                        padding: '15px',
+                                        background: '#f8f9fa',
+                                        borderRadius: '8px',
+                                        borderLeft: '5px solid #e74c3c',
+                                        cursor: 'pointer',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                                        transition: 'all 0.2s ease',
+                                        border: selectedLocation?.lat === spot.lat ? '1px solid #e74c3c' : '1px solid transparent'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                        <h4 style={{ margin: 0, fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            {index + 1}. {spot.name}
+                                            <span style={{
+                                                fontSize: '11px', padding: '2px 6px', borderRadius: '4px', color: '#fff',
+                                                backgroundColor: spot.indoorOutdoor === '실내' ? '#3498db' : '#2ecc71',
+                                                fontWeight: 'normal'
+                                            }}>
+                                                {spot.indoorOutdoor || '정보없음'}
+                                            </span>
+                                        </h4>
+                                        <span style={{ fontSize: '12px', color: '#e74c3c', fontWeight: 'bold', background: '#feeae9', padding: '2px 8px', borderRadius: '12px' }}>
+                                            #{spot.theme}
                                         </span>
-                                    </h4>
-                                    <span style={{ fontSize: '12px', color: '#e74c3c', fontWeight: 'bold', background: '#feeae9', padding: '2px 8px', borderRadius: '12px' }}>
-                                        #{spot.theme}
-                                    </span>
-                                </div>
-                                <p style={{ margin: 0, fontSize: '14px', color: '#555', lineHeight: '1.5', marginBottom: '10px' }}>
-                                    {spot.description}
-                                </p>
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: '14px', color: '#555', lineHeight: '1.5' }}>
+                                        {spot.description}
+                                    </p>
 
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '5px' }}>
-                                    {spot.distToNext && index !== plans.length - 1 && (
-                                        <div style={{
-                                            fontSize: '12px', color: '#555', background: '#e9ecef',
-                                            padding: '5px 10px', borderRadius: '5px', display: 'inline-block',
-                                        }}>
-                                            📍 다음 장소까지: <span style={{ color: '#e74c3c', fontWeight: 'bold' }}>{spot.distToNext}</span>
+                                    {/* 첫 번째 장소에만 출발지 → 첫 장소 길찾기 버튼 표시 */}
+                                    {index === 0 && (
+                                        <div style={{ marginTop: '10px' }}>
+                                            <a
+                                                href={
+                                                    district === '내주변' && userLocation
+                                                        ? `https://map.kakao.com/link/from/${encodeURIComponent('내 위치')},${userLocation.lat},${userLocation.lng}/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`
+                                                        : `https://map.kakao.com/link/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`
+                                                }
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{
+                                                    display: 'inline-block', padding: '4px 10px', fontSize: '12px',
+                                                    backgroundColor: '#fee500', color: '#3c1e1e', borderRadius: '4px',
+                                                    textDecoration: 'none', fontWeight: 'bold',
+                                                }}
+                                            >
+                                                🗺️ 카카오맵 길찾기
+                                            </a>
                                         </div>
                                     )}
-                                    <a
-                                        href={
-                                            index === 0
-                                                ? (district === '내주변' && userLocation
-                                                    ? `https://map.kakao.com/link/from/${encodeURIComponent('내 위치')},${userLocation.lat},${userLocation.lng}/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`
-                                                    : `https://map.kakao.com/link/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`)
-                                                : `https://map.kakao.com/link/from/${encodeURIComponent(plans[index-1].name)},${plans[index-1].lat},${plans[index-1].lng}/to/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}`
-                                        }
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
-                                        style={{
-                                            display: 'inline-block', padding: '4px 10px', fontSize: '12px',
-                                            backgroundColor: '#fee500', color: '#3c1e1e', borderRadius: '4px',
-                                            textDecoration: 'none', fontWeight: 'bold',
-                                        }}
-                                    >
-                                        🗺️ 카카오맵 길찾기
-                                    </a>
                                 </div>
-                            </div>
+
+                                {/* 카드 사이 이동 정보 연결 요소 (마지막 카드 다음엔 표시 안 함) */}
+                                {index !== plans.length - 1 && (
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', gap: '10px',
+                                        padding: '8px 14px',
+                                        background: '#fff',
+                                        border: '1px dashed #ccc',
+                                        borderRadius: '6px',
+                                        fontSize: '13px',
+                                        color: '#555',
+                                    }}>
+                                        <span style={{ color: '#e74c3c', fontSize: '15px', flexShrink: 0 }}>↓</span>
+                                        <span style={{ flex: 1 }}>
+                                            {spot.distToNext || '이동 정보 없음'}
+                                        </span>
+                                        <a
+                                            href={`https://map.kakao.com/link/from/${encodeURIComponent(spot.name)},${spot.lat},${spot.lng}/to/${encodeURIComponent(plans[index + 1].name)},${plans[index + 1].lat},${plans[index + 1].lng}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{
+                                                display: 'inline-block', padding: '4px 10px', fontSize: '12px',
+                                                backgroundColor: '#fee500', color: '#3c1e1e', borderRadius: '4px',
+                                                textDecoration: 'none', fontWeight: 'bold', flexShrink: 0,
+                                            }}
+                                        >
+                                            🗺️ 카카오맵 길찾기
+                                        </a>
+                                    </div>
+                                )}
+                            </React.Fragment>
                         ))}
                     </div>
 

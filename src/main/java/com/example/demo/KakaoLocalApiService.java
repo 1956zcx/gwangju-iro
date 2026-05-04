@@ -19,6 +19,12 @@ public class KakaoLocalApiService {
     @Value("${kakao.rest.api.key}")
     private String restApiKey;
 
+    @Value("${tmap.api.key:}")
+    private String tmapApiKey;
+
+    @Value("${odsay.api.key:}")
+    private String odsayApiKey;
+
     // 🎯 용도: 서브 장소(맛집/카페) 전용 검색
     public List<PlaceDto> getNearbyFoods(double lat, double lng, int radius, String budget) {
         List<String> keywords = new ArrayList<>();
@@ -40,7 +46,7 @@ public class KakaoLocalApiService {
         return fetchKakaoData(lat, lng, radius, keywords, 15);
     }
 
-    // 🚗 이동 시간 계산: 자가용 → 카카오 모빌리티 API, 뚜벅이 → Haversine 계산
+    // 🚗 이동 시간 계산: 자가용 → 카카오 모빌리티 API, 뚜벅이 → T-map 보행자 API → Haversine 폴백
     public Map<String, Integer> getTravelInfo(double originLat, double originLng, double destLat, double destLng, boolean isWalking) {
         if (!isWalking) {
             try {
@@ -66,14 +72,129 @@ public class KakaoLocalApiService {
                         Map<String, Integer> result = new HashMap<>();
                         result.put("duration", duration);
                         result.put("distance", distance);
+                        System.out.printf("[카카오길찾기] ✓ %dm / %d분%n", distance, duration / 60);
                         return result;
                     }
                 }
             } catch (Exception e) {
-                System.err.println("카카오 모빌리티 API 오류 (자가용 폴백 사용): " + e.getMessage());
+                System.err.printf("[카카오길찾기] ✗ Haversine 폴백 → %s%n", e.getMessage());
+            }
+        } else {
+            int straightDist = estimateStraightDist(originLat, originLng, destLat, destLng);
+            System.out.printf("[경로분기] 직선 %dm | T-map키:%s | ODSAY키:%s%n",
+                    straightDist, tmapApiKey.isEmpty() ? "없음" : "있음", odsayApiKey.isEmpty() ? "없음" : "있음");
+            if (straightDist >= 1400 && odsayApiKey != null && !odsayApiKey.isEmpty()) {
+                // 장거리 → ODSAY 대중교통
+                Map<String, Integer> odsayResult = getOdsayTransitInfo(originLat, originLng, destLat, destLng);
+                if (odsayResult != null) return odsayResult;
+            }
+            if (tmapApiKey != null && !tmapApiKey.isEmpty()) {
+                // 단거리 또는 ODSAY 실패 → T-map 도보
+                Map<String, Integer> tmapResult = getTmapWalkingInfo(originLat, originLng, destLat, destLng);
+                if (tmapResult != null) return tmapResult;
             }
         }
         return calcByHaversine(originLat, originLng, destLat, destLng, isWalking);
+    }
+
+    // 🚌 ODSAY 대중교통 경로 API (버스/지하철 실측 시간)
+    private Map<String, Integer> getOdsayTransitInfo(double originLat, double originLng, double destLat, double destLng) {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            URI uri = UriComponentsBuilder
+                    .fromUriString("https://api.odsay.com/v1/api/searchPubTransPathT")
+                    .queryParam("apiKey", odsayApiKey)
+                    .queryParam("SY", originLat)
+                    .queryParam("SX", originLng)
+                    .queryParam("EY", destLat)
+                    .queryParam("EX", destLng)
+                    .build().encode().toUri();
+
+            ResponseEntity<Map> response = restTemplate.getForEntity(uri, Map.class);
+            Map<String, Object> body = response.getBody();
+            System.out.println("[ODSAY] 응답: " + body);
+            if (body != null) {
+                Map<String, Object> result = (Map<String, Object>) body.get("result");
+                if (result != null) {
+                    List<Map<String, Object>> paths = (List<Map<String, Object>>) result.get("path");
+                    if (paths != null && !paths.isEmpty()) {
+                        Map<String, Object> info = (Map<String, Object>) paths.get(0).get("info");
+                        int totalTime = ((Number) info.get("totalTime")).intValue();
+                        int totalDistance = ((Number) info.get("totalDistance")).intValue();
+                        Map<String, Integer> res = new HashMap<>();
+                        res.put("duration", totalTime * 60);
+                        res.put("distance", totalDistance);
+                        res.put("isTransit", 1);
+                        System.out.printf("[ODSAY] ✓ %dm / %d분%n", totalDistance, totalTime);
+                        return res;
+                    } else {
+                        System.out.println("[ODSAY] path 없음 (경로 탐색 실패) → T-map 폴백");
+                    }
+                } else {
+                    System.out.println("[ODSAY] result 필드 없음 → T-map 폴백");
+                }
+            }
+        } catch (Exception e) {
+            System.err.printf("[ODSAY] ✗ T-map 폴백 → %s%n", e.getMessage());
+        }
+        return null;
+    }
+
+    // 직선거리 추정 (API 호출 전 장/단거리 분기용)
+    private int estimateStraightDist(double lat1, double lng1, double lat2, double lng2) {
+        final double R = 6371000;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return (int) (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    // 🚶 T-map 보행자 경로 API (실제 도보 거리/시간)
+    private Map<String, Integer> getTmapWalkingInfo(double originLat, double originLng, double destLat, double destLng) {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("appKey", tmapApiKey);
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("startX", String.valueOf(originLng));
+            body.put("startY", String.valueOf(originLat));
+            body.put("endX", String.valueOf(destLng));
+            body.put("endY", String.valueOf(destLat));
+            body.put("reqCoordType", "WGS84GEO");
+            body.put("resCoordType", "WGS84GEO");
+            body.put("startName", "출발지");
+            body.put("endName", "도착지");
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    "https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1",
+                    HttpMethod.POST, entity, Map.class
+            );
+
+            Map<String, Object> responseBody = response.getBody();
+            if (responseBody != null) {
+                List<Map<String, Object>> features = (List<Map<String, Object>>) responseBody.get("features");
+                if (features != null && !features.isEmpty()) {
+                    Map<String, Object> properties = (Map<String, Object>) features.get(0).get("properties");
+                    if (properties != null) {
+                        int totalDistance = ((Number) properties.get("totalDistance")).intValue();
+                        int totalTime = ((Number) properties.get("totalTime")).intValue();
+                        Map<String, Integer> result = new HashMap<>();
+                        result.put("distance", totalDistance);
+                        result.put("duration", totalTime);
+                        System.out.printf("[T-map] ✓ %dm / %d분%n", totalDistance, totalTime / 60);
+                        return result;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.printf("[T-map] ✗ Haversine 폴백 → %s%n", e.getMessage());
+        }
+        return null;
     }
 
     private Map<String, Integer> calcByHaversine(double lat1, double lng1, double lat2, double lng2, boolean isWalking) {
@@ -84,8 +205,10 @@ public class KakaoLocalApiService {
                 + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
                 * Math.sin(dLng / 2) * Math.sin(dLng / 2);
         int straightDist = (int) (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-        int actualDist = (int) (straightDist * 1.3);
-        double speedMps = isWalking ? (4000.0 / 3600.0) : (30000.0 / 3600.0);
+        // 도보: 도심 격자 기준 1.2배, 5km/h / 차량 폴백: 1.3배, 30km/h
+        double roadFactor = isWalking ? 1.2 : 1.3;
+        double speedMps = isWalking ? (5000.0 / 3600.0) : (30000.0 / 3600.0);
+        int actualDist = (int) (straightDist * roadFactor);
         int durationSec = (int) (actualDist / speedMps);
         Map<String, Integer> result = new HashMap<>();
         result.put("duration", durationSec);
