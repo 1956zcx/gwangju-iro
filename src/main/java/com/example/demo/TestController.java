@@ -41,10 +41,10 @@ public class TestController {
             requiredMains = 2;
             requiredSubs = 1;
         } else if (time.contains("6시간")) {
-            requiredMains = 3;
+            requiredMains = 4;
             requiredSubs = 1;
         } else {
-            requiredMains = 4;
+            requiredMains = 5;
             requiredSubs = 2;
         }
 
@@ -226,8 +226,8 @@ public class TestController {
             // ✅ 수정: 코스 흐름에 맞게 밥 먹는 타이밍을 정확히 제어합니다.
             boolean matchSubNow = false;
             if (requiredMains == 2 && mainCount == 2) matchSubNow = true;
-            else if (requiredMains == 3 && mainCount == 3) matchSubNow = true;
             else if (requiredMains == 4 && (mainCount == 2 || mainCount == 4)) matchSubNow = true;
+            else if (requiredMains == 5 && (mainCount == 2 || mainCount == 4)) matchSubNow = true;
             if (mainCount == optimizedSpots.size() && subCount < requiredSubs) {
                 matchSubNow = true;
             }
@@ -416,6 +416,9 @@ public class TestController {
                 cat.contains("일식") || cat.contains("양식") || cat.contains("분식") || cat.contains("국밥") ||
                 main.contains("서브장소") || main.contains("먹거리")) {
             return 45;
+        }
+        if (cat.contains("영화") || cat.contains("시네마") || cat.contains("cinema")) {
+            return 180;
         }
         return 60;
     }
